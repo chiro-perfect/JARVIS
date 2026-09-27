@@ -11,11 +11,9 @@ import speech_recognition as sr
 from gtts import gTTS
 from fpdf import FPDF
 from docx import Document
+import imageio_ffmpeg  # LA MAGIE POUR L'AUDIO SUR RENDER
 
-# Supprimer les warnings qui polluent la console
 warnings.filterwarnings("ignore")
-
-# --- CONFIGURATION ET CLÉS ---
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -33,12 +31,11 @@ EMOJI_MAPPING = {
 }
 
 SYSTEM_INSTRUCTION = (
-    "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique. "
-    "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré', 'mon reuf'), mais tu assures un max quand on te demande un truc sérieux. "
+    "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique et de la paperasse. "
+    "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'). "
     "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
-    "INTERDICTION ABSOLUE de mentionner Google, Gemini ou le fait que tu sois une IA. "
-    "RÈGLE PAPERASSE : Si on te demande de rédiger un document (CV, lettre, contrat), rédige le texte complet directement. Précise toujours à l'utilisateur qu'il peut utiliser la commande /convert sur ton texte pour le transformer en PDF ou Word. "
-    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji correspondant."
+    "INTERDICTION de mentionner Google ou Gemini. "
+    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji."
 )
 
 try:
@@ -47,7 +44,6 @@ except Exception as e:
     print(f"Erreur d'initialisation Gemini: {e}")
     exit()
 
-# Intents nécessaires pour Discord
 intents = discord.Intents.default()
 intents.message_content = True  
 intents.members = True
@@ -55,17 +51,30 @@ intents.presences = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 ROLLING_BUFFER = [] 
+ACTIVE_TEXT_CHANNEL = None
 
 # ==========================================
-# COMMANDES VOCALES (PREFIX & SLASH)
+# UTILITAIRES & SÉCURITÉS (CORRECTIONS DES CRASH)
+# ==========================================
+def nettoyer_nom_fichier(titre):
+    # Enlève les caractères bizarres et les slashs pour ne pas faire planter le serveur
+    propre = "".join(c for c in titre if c.isalnum() or c in (' ', '_')).rstrip()
+    return propre if propre else "document_jarvis"
+
+def texte_pdf_safe(texte):
+    # FPDF ne supporte pas les emojis ou l'arabe, ça évite le crash UnicodeEncodeError
+    return texte.encode('latin-1', 'replace').decode('latin-1')
+
+# ==========================================
+# COMMANDES VOCALES 
 # ==========================================
 is_listening = False
 
 async def connect_voice(ctx):
-    """Fonction commune pour connecter le bot au vocal"""
     global is_listening
     if not ctx.author.voice:
-        return await ctx.respond("❌ Frérot, connecte-toi à un salon vocal d'abord !") if isinstance(ctx, discord.ApplicationContext) else await ctx.send("❌ Frérot, connecte-toi à un salon vocal d'abord !")
+        msg = "❌ Frérot, connecte-toi à un salon vocal d'abord !"
+        return await ctx.respond(msg) if isinstance(ctx, discord.ApplicationContext) else await ctx.send(msg)
     
     if ctx.voice_client is not None:
         if ctx.voice_client.channel == ctx.author.voice.channel:
@@ -80,17 +89,13 @@ async def connect_voice(ctx):
         vc = await ctx.author.voice.channel.connect()
         is_listening = True
         msg = "🔌 C'est carré, je suis connecté en vocal ! Dis 'Jarvis' pour me parler."
-        if isinstance(ctx, discord.ApplicationContext):
-            await ctx.respond(msg)
-        else:
-            await ctx.send(msg)
+        await ctx.respond(msg) if isinstance(ctx, discord.ApplicationContext) else await ctx.send(msg)
         bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
     except Exception as e:
         error_msg = f"❌ J'ai planté en rejoignant : {e}"
         await ctx.respond(error_msg) if isinstance(ctx, discord.ApplicationContext) else await ctx.send(error_msg)
 
 async def disconnect_voice(ctx):
-    """Fonction commune pour déconnecter le bot"""
     global is_listening
     is_listening = False
     if ctx.voice_client:
@@ -101,7 +106,6 @@ async def disconnect_voice(ctx):
     
     await ctx.respond(msg) if isinstance(ctx, discord.ApplicationContext) else await ctx.send(msg)
 
-# Commandes Classiques (!)
 @bot.command()
 async def joinvoc(ctx):
     await connect_voice(ctx)
@@ -110,7 +114,6 @@ async def joinvoc(ctx):
 async def leavevoc(ctx):
     await disconnect_voice(ctx)
 
-# Commandes Slash (/)
 @bot.slash_command(name="join", description="Fait venir Jarvis dans ton vocal pour discuter")
 async def slash_join(ctx):
     await connect_voice(ctx)
@@ -118,7 +121,6 @@ async def slash_join(ctx):
 @bot.slash_command(name="leave", description="Déconnecte Jarvis du vocal")
 async def slash_leave(ctx):
     await disconnect_voice(ctx)
-
 
 # ==========================================
 # COMMANDES SLASH (PAPERASSE)
@@ -129,19 +131,19 @@ async def convert(ctx, format: str, titre: str, contenu: str):
     await ctx.defer()
     fmt = format.strip().lower()
     if fmt not in ["pdf", "word"]:
-        return await ctx.respond("Frérot, choisis bien entre 'pdf' ou 'word' dans le format ! ❌", ephemeral=True)
+        return await ctx.respond("Frérot, choisis 'pdf' ou 'word' ! ❌")
 
-    nom_fichier = titre.replace(' ', '_')
+    nom_base = nettoyer_nom_fichier(titre)
     if fmt == "pdf":
-        nom_fichier += ".pdf"
+        nom_fichier = f"{nom_base}.pdf"
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=titre, ln=1, align='C')
-        pdf.multi_cell(0, 10, txt=contenu)
+        pdf.cell(200, 10, txt=texte_pdf_safe(titre), ln=1, align='C')
+        pdf.multi_cell(0, 10, txt=texte_pdf_safe(contenu))
         pdf.output(nom_fichier)
     else:
-        nom_fichier += ".docx"
+        nom_fichier = f"{nom_base}.docx"
         doc = Document()
         doc.add_heading(titre, 0)
         doc.add_paragraph(contenu)
@@ -153,26 +155,26 @@ async def convert(ctx, format: str, titre: str, contenu: str):
 @bot.slash_command(name="pdf", description="Génère un fichier PDF ultra rapidement")
 async def slash_pdf(ctx, titre: str, contenu: str):
     await ctx.defer()
-    nom = f"{titre.replace(' ', '_')}.pdf"
+    nom_fichier = f"{nettoyer_nom_fichier(titre)}.pdf"
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=titre, ln=1, align='C')
-    pdf.multi_cell(0, 10, txt=contenu)
-    pdf.output(nom)
-    await ctx.respond(f"Tiens poto, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
-    os.remove(nom)
+    pdf.cell(200, 10, txt=texte_pdf_safe(titre), ln=1, align='C')
+    pdf.multi_cell(0, 10, txt=texte_pdf_safe(contenu))
+    pdf.output(nom_fichier)
+    await ctx.respond(f"Tiens poto, ton PDF est bouclé ! 📄", file=discord.File(nom_fichier))
+    os.remove(nom_fichier)
 
 @bot.slash_command(name="word", description="Génère un fichier Word (.docx) rapidement")
 async def slash_word(ctx, titre: str, contenu: str):
     await ctx.defer()
-    nom = f"{titre.replace(' ', '_')}.docx"
+    nom_fichier = f"{nettoyer_nom_fichier(titre)}.docx"
     doc = Document()
     doc.add_heading(titre, 0)
     doc.add_paragraph(contenu)
-    doc.save(nom)
-    await ctx.respond(f"Propre ! Ton Word '{titre}' est prêt. 📝", file=discord.File(nom))
-    os.remove(nom)
+    doc.save(nom_fichier)
+    await ctx.respond(f"Propre ! Ton Word est prêt. 📝", file=discord.File(nom_fichier))
+    os.remove(nom_fichier)
 
 # ==========================================
 # GESTION DES MESSAGES TEXTES (CONVERSATION)
@@ -208,8 +210,9 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
+                # CORRECTION DU 404 : Changement de modèle vers gemini-1.5-flash-latest
                 response = await gemini_client.aio.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-1.5-flash-latest',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION
@@ -235,11 +238,10 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"Erreur texte : {e}")
-                # Affiche la VRAIE erreur pour qu'on sache si ça plante encore
                 await message.reply(f"Vsy j'ai planté. Erreur technique : `{e}` 💀")
 
 # ==========================================
-# MODULE VOCAL & ÉCOUTE PASSIVE (CORRIGÉ)
+# MODULE VOCAL & ÉCOUTE PASSIVE 
 # ==========================================
 
 async def boucle_ecoute(vc, guild_id):
@@ -276,8 +278,9 @@ async def callback_transcription(sink, guild_id):
                     contexte = "\n".join(ROLLING_BUFFER)
                     prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds vocalement."
                     
+                    # CORRECTION DU 404 POUR LE VOCAL AUSSI
                     resp = await gemini_client.aio.models.generate_content(
-                        model='gemini-1.5-flash',
+                        model='gemini-1.5-flash-latest',
                         contents=prompt_vocal,
                         config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
                     )
@@ -294,7 +297,10 @@ async def callback_transcription(sink, guild_id):
                     if guild.voice_client:
                         if guild.voice_client.is_playing():
                             guild.voice_client.stop()
-                        guild.voice_client.play(discord.FFmpegPCMAudio("rep.mp3"))
+                        
+                        # LE CORRECTIF AUDIO ULTIME POUR RENDER ICI
+                        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                        guild.voice_client.play(discord.FFmpegPCMAudio("rep.mp3", executable=ffmpeg_path))
 
         except sr.UnknownValueError:
             pass  
