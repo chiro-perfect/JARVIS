@@ -208,9 +208,9 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # Modèle mis à jour pour éviter l'erreur 404
+                # Modèle mis à jour vers 3.8-flash pour éviter l'erreur 404
                 response = await gemini_client.aio.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-3.8-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION
@@ -276,9 +276,9 @@ async def callback_transcription(sink, guild_id):
                     contexte = "\n".join(ROLLING_BUFFER)
                     prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds vocalement."
                     
-                    # Modèle mis à jour pour le vocal également
+                    # Modèle mis à jour vers 3.8-flash pour le vocal également
                     resp = await gemini_client.aio.models.generate_content(
-                        model='gemini-2.0-flash',
+                        model='gemini-3.8-flash',
                         contents=prompt_vocal,
                         config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
                     )
