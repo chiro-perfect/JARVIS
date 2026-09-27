@@ -14,7 +14,7 @@ from fpdf import FPDF
 from docx import Document
 from bs4 import BeautifulSoup
 
-# Supprimer les warnings
+# Supprimer les warnings qui polluent la console
 warnings.filterwarnings("ignore")
 
 # --- CONFIGURATION ET CLÉS ---
@@ -36,10 +36,10 @@ EMOJI_MAPPING = {
 
 SYSTEM_INSTRUCTION = (
     "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique et pro de la paperasse administrative (CV, lettres, contrats, résumés). "
-    "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'), mais tu assures un max. "
+    "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'), mais tu assures un max quand on te demande un truc sérieux. "
     "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
     "INTERDICTION ABSOLUE de mentionner Google, Gemini ou le fait que tu sois une IA. "
-    "Tu peux créer des fichiers PDF, Word, chercher sur le web, et rédiger n'importe quel document administratif. "
+    "Tu peux créer des fichiers PDF, Word, chercher sur le web, et rédiger n'importe quel document. "
     "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji correspondant."
 )
 
@@ -49,7 +49,7 @@ except Exception as e:
     print(f"Erreur d'initialisation Gemini: {e}")
     exit()
 
-# Intents
+# Intents nécessaires pour Discord
 intents = discord.Intents.default()
 intents.message_content = True  
 intents.members = True
@@ -95,7 +95,50 @@ def recherche_web(requete: str) -> str:
 outils_jarvis = [creer_pdf, creer_word, recherche_web]
 
 # ==========================================
-# COMMANDES SLASH (PAPERASSE & CONVERSION)
+# COMMANDES CLASSIQUES (ANTI-BUG DISCORD)
+# ==========================================
+is_listening = False
+
+@bot.command()
+async def joinvoc(ctx):
+    """Commande sûre pour faire venir Jarvis en vocal (!joinvoc)"""
+    global is_listening, ACTIVE_TEXT_CHANNEL
+    
+    if not ctx.author.voice:
+        return await ctx.send("❌ Frérot, connecte-toi à un salon vocal d'abord ! (Si tu y es, c'est que je n'ai pas la permission 'Voir le salon' 👀)")
+    
+    ACTIVE_TEXT_CHANNEL = ctx.channel
+
+    if ctx.voice_client is not None:
+        if ctx.voice_client.channel == ctx.author.voice.channel:
+            return await ctx.send("Wsh, je suis déjà dans ton salon ! Parle-moi. 🔌")
+        else:
+            await ctx.voice_client.move_to(ctx.author.voice.channel)
+            return await ctx.send(f"Je me déplace dans ton salon : {ctx.author.voice.channel.name} 🏃‍♂️")
+
+    try:
+        vc = await ctx.author.voice.channel.connect()
+        is_listening = True
+        await ctx.send("🔌 C'est carré, je suis connecté en vocal ! Dis 'Jarvis' pour me parler.")
+        bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
+    except discord.errors.Forbidden:
+        await ctx.send("❌ Discord me bloque ! Donne-moi la permission 'Se connecter' sur ce salon.")
+    except Exception as e:
+        await ctx.send(f"❌ J'ai planté en rejoignant : {e}")
+
+@bot.command()
+async def leavevoc(ctx):
+    """Commande sûre pour déconnecter Jarvis (!leavevoc)"""
+    global is_listening
+    is_listening = False
+    if ctx.voice_client:
+        await ctx.voice_client.disconnect()
+        await ctx.send("C'est carré, je me barre du vocal. A+ la team ! ✌️")
+    else:
+        await ctx.send("Je suis même pas en vocal frérot.")
+
+# ==========================================
+# COMMANDES SLASH (PAPERASSE)
 # ==========================================
 
 @bot.slash_command(name="convert", description="Convertit ton texte directement en PDF ou en Word propre")
@@ -124,30 +167,6 @@ async def convert(ctx, format: str, titre: str, contenu: str):
     await ctx.respond(f"Carré la famille ! Ton fichier **{nom_fichier}** est prêt 👇", file=discord.File(nom_fichier))
     os.remove(nom_fichier)
 
-@bot.slash_command(name="pdf", description="Génère un fichier PDF ultra rapidement")
-async def slash_pdf(ctx, titre: str, contenu: str):
-    await ctx.defer()
-    nom = f"{titre.replace(' ', '_')}.pdf"
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=titre, ln=1, align='C')
-    pdf.multi_cell(0, 10, txt=contenu)
-    pdf.output(nom)
-    await ctx.respond(f"Tiens poto, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
-    os.remove(nom)
-
-@bot.slash_command(name="word", description="Génère un fichier Word (.docx) rapidement")
-async def slash_word(ctx, titre: str, contenu: str):
-    await ctx.defer()
-    nom = f"{titre.replace(' ', '_')}.docx"
-    doc = Document()
-    doc.add_heading(titre, 0)
-    doc.add_paragraph(contenu)
-    doc.save(nom)
-    await ctx.respond(f"Propre ! Ton Word '{titre}' est prêt. 📝", file=discord.File(nom))
-    os.remove(nom)
-
 # ==========================================
 # GESTION DES MESSAGES TEXTES
 # ==========================================
@@ -155,12 +174,13 @@ async def slash_word(ctx, titre: str, contenu: str):
 @bot.event
 async def on_ready():
     print(f'🤖 {bot.user} (Jarvis) est en ligne et prêt !')
-    await bot.change_presence(activity=discord.Game(name="/join pour le vocal !"))
+    await bot.change_presence(activity=discord.Game(name="Tape !joinvoc pour le vocal"))
 
 @bot.event
 async def on_message(message):
     global ACTIVE_TEXT_CHANNEL
 
+    # Ne pas se répondre à soi-même
     if message.author == bot.user:
         return
 
@@ -168,6 +188,11 @@ async def on_message(message):
     msg_lower = message.content.lower()
     is_keyword = KEYWORD in msg_lower
     is_mentioned = bot.user.mentioned_in(message)
+
+    # Laisser passer les commandes avec '!' pour qu'elles s'exécutent
+    if message.content.startswith('!'):
+        await bot.process_commands(message)
+        return
 
     if is_keyword or is_mentioned:
         prompt = message.content.strip()
@@ -217,51 +242,9 @@ async def on_message(message):
                 print(f"Erreur texte : {e}")
                 await message.reply("Vsy t'as cablé, mon cerveau a lâché. 💀")
 
-    await bot.process_commands(message)
-
 # ==========================================
-# MODULE VOCAL & ÉCOUTE PASSIVE (CORRIGÉ & ROBUSTE)
+# MODULE VOCAL & ÉCOUTE PASSIVE (ULTRA ROBUSTE)
 # ==========================================
-
-is_listening = False
-
-@bot.slash_command(name="join", description="Fait venir Jarvis dans ton vocal pour discuter")
-async def join(ctx):
-    global is_listening, ACTIVE_TEXT_CHANNEL
-    
-    if not ctx.author.voice:
-        return await ctx.respond("Frérot, connecte-toi à un salon vocal d'abord ! 🎧")
-    
-    ACTIVE_TEXT_CHANNEL = ctx.channel
-
-    # Si le bot est déjà connecté
-    if ctx.voice_client is not None:
-        if ctx.voice_client.channel == ctx.author.voice.channel:
-            return await ctx.respond("Wsh, je suis déjà dans ton salon ! Parle-moi. 🔌")
-        else:
-            await ctx.voice_client.move_to(ctx.author.voice.channel)
-            return await ctx.respond(f"Je me déplace dans ton salon : {ctx.author.voice.channel.name} 🏃‍♂️")
-
-    try:
-        vc = await ctx.author.voice.channel.connect()
-        is_listening = True
-        await ctx.respond("🔌 C'est carré, je suis connecté en vocal ! Dis 'Jarvis' pour me parler.")
-        bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
-    except discord.errors.Forbidden:
-        await ctx.respond("❌ Je n'ai pas la permission de rejoindre ce salon ! Donne à mon rôle la perm 'Se connecter'.")
-    except Exception as e:
-        print(f"Erreur connexion vocal: {e}")
-        await ctx.respond(f"❌ J'ai planté en rejoignant : {e}")
-
-@bot.slash_command(name="leave", description="Déconnecte Jarvis du vocal")
-async def leave(ctx):
-    global is_listening
-    is_listening = False
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.respond("Je me barre du vocal. A+ la team ! ✌️")
-    else:
-        await ctx.respond("Je suis même pas en vocal frérot.")
 
 async def boucle_ecoute(vc, guild_id):
     global is_listening
@@ -305,7 +288,6 @@ async def callback_transcription(sink, guild_id):
                     
                     reponse_txt = resp.text or "Wsh j'ai rien capté."
                     
-                    # Correction vitale de la gestion des emojis pour le vocal
                     if "EMOJI:" in reponse_txt:
                         reponse_txt = reponse_txt.split("\nEMOJI:")[0].strip()
 
@@ -324,7 +306,7 @@ async def callback_transcription(sink, guild_id):
                             os.remove(file)
 
         except sr.UnknownValueError:
-            pass  # Silence normal
+            pass  # Silence, il n'a rien entendu
         except Exception as e:
             print(f"Erreur pendant le traitement vocal: {e}")
         finally:
