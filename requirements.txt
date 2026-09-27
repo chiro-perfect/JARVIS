@@ -1,5 +1,5 @@
 py-cord[voice]
-google-genai
+groq
 gTTS
 fpdf
 python-docx
