@@ -2,8 +2,7 @@ import os
 import discord
 import keep_alive
 from discord.ext import commands
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 from dotenv import load_dotenv
 import warnings
 import asyncio
@@ -17,7 +16,7 @@ warnings.filterwarnings("ignore")
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 KEYWORD = "jarvis"
 INSULT_KEYWORDS = ["fdp", "enculé", "connard", "pute", "salaud", "bâtard", "con"]
 
@@ -30,20 +29,19 @@ EMOJI_MAPPING = {
     "PLEURE": "😭", "NEUTRE": "😐"
 }
 
-# NOUVELLE RÈGLE DANS LES INSTRUCTIONS POUR L'ENVOI DE MESSAGE
 SYSTEM_INSTRUCTION = (
     "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique et de la paperasse. "
     "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'). "
     "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
-    "INTERDICTION de mentionner Google ou Gemini. "
+    "INTERDICTION de mentionner Groq, Meta, Llama, Google ou le fait que tu sois une IA. "
     "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji. "
     "RÈGLE VOCALE VERS TEXTE : Si l'utilisateur te demande à l'oral d'écrire, de dire ou d'envoyer un message dans le salon écrit/général, tu DOIS commencer ta réponse UNIQUEMENT par la balise [SEND_TEXT] suivie directement du message à envoyer. Exemple: [SEND_TEXT] Wsh les gars on lance une game ?"
 )
 
 try:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 except Exception as e:
-    print(f"Erreur d'initialisation Gemini: {e}")
+    print(f"Erreur d'initialisation Groq: {e}")
     exit()
 
 intents = discord.Intents.default()
@@ -160,7 +158,7 @@ async def convert(ctx, format: str, titre: str, contenu: str):
 
 @bot.event
 async def on_ready():
-    print(f'🤖 {bot.user} (Jarvis) est en ligne avec le modèle 3.8-flash !')
+    print(f'🤖 {bot.user} (Jarvis) est en ligne avec Groq (Llama 3.1) !')
     await bot.change_presence(activity=discord.Game(name="Tape /join ou !joinvoc"))
 
 @bot.event
@@ -191,15 +189,15 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                response = await gemini_client.aio.models.generate_content(
-                    model='gemini-3.8-flash',
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION
-                    )
+                chat_completion = await groq_client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": SYSTEM_INSTRUCTION},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model="llama-3.1-8b-instant",
                 )
                 
-                full_text = response.text or "Wsh, j'ai eu un trou de mémoire."
+                full_text = chat_completion.choices[0].message.content or "Wsh, j'ai eu un trou de mémoire."
                 emoji_key = "COOL"
                 
                 if "\nEMOJI:" in full_text:
@@ -263,13 +261,15 @@ async def callback_transcription(sink, guild_id):
                     contexte = "\n".join(ROLLING_BUFFER)
                     prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds."
                     
-                    resp = await gemini_client.aio.models.generate_content(
-                        model='gemini-3.8-flash',
-                        contents=prompt_vocal,
-                        config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
+                    chat_completion = await groq_client.chat.completions.create(
+                        messages=[
+                            {"role": "system", "content": SYSTEM_INSTRUCTION},
+                            {"role": "user", "content": prompt_vocal}
+                        ],
+                        model="llama-3.1-8b-instant",
                     )
                     
-                    reponse_txt = resp.text or "Wsh j'ai rien capté."
+                    reponse_txt = chat_completion.choices[0].message.content or "Wsh j'ai rien capté."
                     
                     if "EMOJI:" in reponse_txt:
                         reponse_txt = reponse_txt.split("\nEMOJI:")[0].strip()
