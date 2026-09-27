@@ -1,0 +1,12 @@
+py-cord
+google-genai
+gTTS
+fpdf
+python-docx
+SpeechRecognition
+pydub
+beautifulsoup4
+requests
+python-dotenv
+PyNaCl
+Flask
