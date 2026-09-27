@@ -158,7 +158,7 @@ async def convert(ctx, format: str, titre: str, contenu: str):
 
 @bot.event
 async def on_ready():
-    print(f'🤖 {bot.user} (Jarvis) est en ligne avec Groq (Llama 3.3) !')
+    print(f'🤖 {bot.user} (Jarvis) est en ligne avec Groq (llama-3.1-8b-instant) !')
     await bot.change_presence(activity=discord.Game(name="Tape /join ou !joinvoc"))
 
 @bot.event
@@ -189,13 +189,12 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # Utilisation du modèle Llama 3.3 ultra stable sur Groq
                 chat_completion = await groq_client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": SYSTEM_INSTRUCTION},
                         {"role": "user", "content": prompt}
                     ],
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-8b-instant",
                 )
                 
                 full_text = chat_completion.choices[0].message.content or "Wsh, j'ai eu un trou de mémoire."
@@ -267,7 +266,7 @@ async def callback_transcription(sink, guild_id):
                             {"role": "system", "content": SYSTEM_INSTRUCTION},
                             {"role": "user", "content": prompt_vocal}
                         ],
-                        model="llama-3.3-70b-versatile",
+                        model="llama-3.1-8b-instant",
                     )
                     
                     reponse_txt = chat_completion.choices[0].message.content or "Wsh j'ai rien capté."
