@@ -11,7 +11,7 @@ import speech_recognition as sr
 from gtts import gTTS
 from fpdf import FPDF
 from docx import Document
-import imageio_ffmpeg  # LA MAGIE POUR L'AUDIO SUR RENDER
+import imageio_ffmpeg  # Correctif audio pour Render
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -57,12 +57,10 @@ ACTIVE_TEXT_CHANNEL = None
 # UTILITAIRES & SÉCURITÉS (CORRECTIONS DES CRASH)
 # ==========================================
 def nettoyer_nom_fichier(titre):
-    # Enlève les caractères bizarres et les slashs pour ne pas faire planter le serveur
     propre = "".join(c for c in titre if c.isalnum() or c in (' ', '_')).rstrip()
     return propre if propre else "document_jarvis"
 
 def texte_pdf_safe(texte):
-    # FPDF ne supporte pas les emojis ou l'arabe, ça évite le crash UnicodeEncodeError
     return texte.encode('latin-1', 'replace').decode('latin-1')
 
 # ==========================================
@@ -210,9 +208,9 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # CORRECTION DU 404 : Changement de modèle vers gemini-1.5-flash-latest
+                # Modèle mis à jour pour éviter l'erreur 404
                 response = await gemini_client.aio.models.generate_content(
-                    model='gemini-1.5-flash-latest',
+                    model='gemini-2.0-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION
@@ -241,7 +239,7 @@ async def on_message(message):
                 await message.reply(f"Vsy j'ai planté. Erreur technique : `{e}` 💀")
 
 # ==========================================
-# MODULE VOCAL & ÉCOUTE PASSIVE 
+# MODULE VOCAL & ÉCOUTE PASSIVE (CORRIGÉ AUDIO RENDER)
 # ==========================================
 
 async def boucle_ecoute(vc, guild_id):
@@ -278,9 +276,9 @@ async def callback_transcription(sink, guild_id):
                     contexte = "\n".join(ROLLING_BUFFER)
                     prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds vocalement."
                     
-                    # CORRECTION DU 404 POUR LE VOCAL AUSSI
+                    # Modèle mis à jour pour le vocal également
                     resp = await gemini_client.aio.models.generate_content(
-                        model='gemini-1.5-flash-latest',
+                        model='gemini-2.0-flash',
                         contents=prompt_vocal,
                         config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
                     )
@@ -298,7 +296,7 @@ async def callback_transcription(sink, guild_id):
                         if guild.voice_client.is_playing():
                             guild.voice_client.stop()
                         
-                        # LE CORRECTIF AUDIO ULTIME POUR RENDER ICI
+                        # Intégration de l'exécutable FFmpeg de imageio_ffmpeg
                         ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
                         guild.voice_client.play(discord.FFmpegPCMAudio("rep.mp3", executable=ffmpeg_path))
 
