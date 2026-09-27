@@ -11,7 +11,7 @@ import speech_recognition as sr
 from gtts import gTTS
 from fpdf import FPDF
 from docx import Document
-import imageio_ffmpeg  # Correctif audio pour Render
+import imageio_ffmpeg  
 
 warnings.filterwarnings("ignore")
 load_dotenv()
@@ -30,12 +30,14 @@ EMOJI_MAPPING = {
     "PLEURE": "😭", "NEUTRE": "😐"
 }
 
+# NOUVELLE RÈGLE DANS LES INSTRUCTIONS POUR L'ENVOI DE MESSAGE
 SYSTEM_INSTRUCTION = (
     "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique et de la paperasse. "
     "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'). "
     "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
     "INTERDICTION de mentionner Google ou Gemini. "
-    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji."
+    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji. "
+    "RÈGLE VOCALE VERS TEXTE : Si l'utilisateur te demande à l'oral d'écrire, de dire ou d'envoyer un message dans le salon écrit/général, tu DOIS commencer ta réponse UNIQUEMENT par la balise [SEND_TEXT] suivie directement du message à envoyer. Exemple: [SEND_TEXT] Wsh les gars on lance une game ?"
 )
 
 try:
@@ -54,7 +56,7 @@ ROLLING_BUFFER = []
 ACTIVE_TEXT_CHANNEL = None
 
 # ==========================================
-# UTILITAIRES & SÉCURITÉS (CORRECTIONS DES CRASH)
+# UTILITAIRES & SÉCURITÉS 
 # ==========================================
 def nettoyer_nom_fichier(titre):
     propre = "".join(c for c in titre if c.isalnum() or c in (' ', '_')).rstrip()
@@ -69,7 +71,9 @@ def texte_pdf_safe(texte):
 is_listening = False
 
 async def connect_voice(ctx):
-    global is_listening
+    global is_listening, ACTIVE_TEXT_CHANNEL
+    ACTIVE_TEXT_CHANNEL = ctx.channel
+    
     if not ctx.author.voice:
         msg = "❌ Frérot, connecte-toi à un salon vocal d'abord !"
         return await ctx.respond(msg) if isinstance(ctx, discord.ApplicationContext) else await ctx.send(msg)
@@ -124,7 +128,7 @@ async def slash_leave(ctx):
 # COMMANDES SLASH (PAPERASSE)
 # ==========================================
 
-@bot.slash_command(name="convert", description="Convertit ton texte directement en PDF ou en Word propre")
+@bot.slash_command(name="convert", description="Convertit ton texte en PDF ou Word")
 async def convert(ctx, format: str, titre: str, contenu: str):
     await ctx.defer()
     fmt = format.strip().lower()
@@ -147,47 +151,26 @@ async def convert(ctx, format: str, titre: str, contenu: str):
         doc.add_paragraph(contenu)
         doc.save(nom_fichier)
 
-    await ctx.respond(f"Carré la famille ! Ton fichier **{nom_fichier}** est prêt 👇", file=discord.File(nom_fichier))
-    os.remove(nom_fichier)
-
-@bot.slash_command(name="pdf", description="Génère un fichier PDF ultra rapidement")
-async def slash_pdf(ctx, titre: str, contenu: str):
-    await ctx.defer()
-    nom_fichier = f"{nettoyer_nom_fichier(titre)}.pdf"
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=texte_pdf_safe(titre), ln=1, align='C')
-    pdf.multi_cell(0, 10, txt=texte_pdf_safe(contenu))
-    pdf.output(nom_fichier)
-    await ctx.respond(f"Tiens poto, ton PDF est bouclé ! 📄", file=discord.File(nom_fichier))
-    os.remove(nom_fichier)
-
-@bot.slash_command(name="word", description="Génère un fichier Word (.docx) rapidement")
-async def slash_word(ctx, titre: str, contenu: str):
-    await ctx.defer()
-    nom_fichier = f"{nettoyer_nom_fichier(titre)}.docx"
-    doc = Document()
-    doc.add_heading(titre, 0)
-    doc.add_paragraph(contenu)
-    doc.save(nom_fichier)
-    await ctx.respond(f"Propre ! Ton Word est prêt. 📝", file=discord.File(nom_fichier))
+    await ctx.respond(f"Carré la famille ! Fichier prêt 👇", file=discord.File(nom_fichier))
     os.remove(nom_fichier)
 
 # ==========================================
-# GESTION DES MESSAGES TEXTES (CONVERSATION)
+# GESTION DES MESSAGES TEXTES
 # ==========================================
 
 @bot.event
 async def on_ready():
-    print(f'🤖 {bot.user} (Jarvis) est en ligne et prêt à discuter !')
+    print(f'🤖 {bot.user} (Jarvis) est en ligne avec le modèle 3.8-flash !')
     await bot.change_presence(activity=discord.Game(name="Tape /join ou !joinvoc"))
 
 @bot.event
 async def on_message(message):
+    global ACTIVE_TEXT_CHANNEL
+
     if message.author == bot.user:
         return
 
+    ACTIVE_TEXT_CHANNEL = message.channel
     msg_lower = message.content.lower()
     is_keyword = KEYWORD in msg_lower
     is_mentioned = bot.user.mentioned_in(message)
@@ -208,7 +191,6 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                # Modèle mis à jour vers 3.8-flash pour éviter l'erreur 404
                 response = await gemini_client.aio.models.generate_content(
                     model='gemini-3.8-flash',
                     contents=prompt,
@@ -239,11 +221,12 @@ async def on_message(message):
                 await message.reply(f"Vsy j'ai planté. Erreur technique : `{e}` 💀")
 
 # ==========================================
-# MODULE VOCAL & ÉCOUTE PASSIVE (CORRIGÉ AUDIO RENDER)
+# MODULE VOCAL & ÉCOUTE PASSIVE 
 # ==========================================
 
 async def boucle_ecoute(vc, guild_id):
     global is_listening
+    print("🎧 Boucle d'écoute vocale démarrée...")
     while is_listening and vc.is_connected():
         try:
             vc.start_recording(discord.sinks.WaveSink(), callback_transcription, guild_id)
@@ -251,12 +234,15 @@ async def boucle_ecoute(vc, guild_id):
             vc.stop_recording()
             await asyncio.sleep(1)
         except Exception as e:
-            print(f"Erreur enregistrement: {e}")
+            print(f"⚠️ Erreur dans la boucle d'enregistrement: {e}")
             await asyncio.sleep(2)
 
 async def callback_transcription(sink, guild_id):
-    global ROLLING_BUFFER
+    global ROLLING_BUFFER, ACTIVE_TEXT_CHANNEL
     recognizer = sr.Recognizer()
+    
+    if not sink.audio_data:
+        return
 
     for user_id, audio in sink.audio_data.items():
         path = f"chunk_{user_id}.wav"
@@ -268,15 +254,15 @@ async def callback_transcription(sink, guild_id):
             with sr.AudioFile(path) as source:
                 audio_data = recognizer.record(source)
                 texte_transcrit = recognizer.recognize_google(audio_data, language="fr-FR").lower()
+                print(f"📝 Entendu : '{texte_transcrit}'")
                 
                 ROLLING_BUFFER.append(f"User : {texte_transcrit}")
                 if len(ROLLING_BUFFER) > 10: ROLLING_BUFFER.pop(0)
 
                 if "jarvis" in texte_transcrit:
                     contexte = "\n".join(ROLLING_BUFFER)
-                    prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds vocalement."
+                    prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds."
                     
-                    # Modèle mis à jour vers 3.8-flash pour le vocal également
                     resp = await gemini_client.aio.models.generate_content(
                         model='gemini-3.8-flash',
                         contents=prompt_vocal,
@@ -288,6 +274,14 @@ async def callback_transcription(sink, guild_id):
                     if "EMOJI:" in reponse_txt:
                         reponse_txt = reponse_txt.split("\nEMOJI:")[0].strip()
 
+                    # INTERCEPTION DE LA DEMANDE D'ENVOI DE MESSAGE
+                    if "[SEND_TEXT]" in reponse_txt:
+                        msg_to_send = reponse_txt.split("[SEND_TEXT]")[1].strip()
+                        if ACTIVE_TEXT_CHANNEL:
+                            await ACTIVE_TEXT_CHANNEL.send(f"🤖 **Message de Jarvis :**\n{msg_to_send}")
+                            print(f"💬 Message envoyé dans le salon écrit : {msg_to_send}")
+                        reponse_txt = "C'est carré mon reuf, j'ai balancé le message dans le salon écrit."
+
                     tts = gTTS(text=reponse_txt, lang='fr')
                     tts.save("rep.mp3")
 
@@ -296,14 +290,14 @@ async def callback_transcription(sink, guild_id):
                         if guild.voice_client.is_playing():
                             guild.voice_client.stop()
                         
-                        # Intégration de l'exécutable FFmpeg de imageio_ffmpeg
                         ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
                         guild.voice_client.play(discord.FFmpegPCMAudio("rep.mp3", executable=ffmpeg_path))
+                        print("✅ Lecture audio lancée !")
 
         except sr.UnknownValueError:
             pass  
         except Exception as e:
-            print(f"Erreur traitement vocal: {e}")
+            print(f"❌ Erreur critique traitement vocal: {e}")
         finally:
             if os.path.exists(path):
                 os.remove(path)
