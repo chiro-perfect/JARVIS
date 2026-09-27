@@ -16,10 +16,10 @@ from fpdf import FPDF
 from docx import Document
 from bs4 import BeautifulSoup
 
-# Supprimer les warnings qui pourraient polluer la console
+# Supprimer les warnings
 warnings.filterwarnings("ignore")
 
-# --- 1. CONFIGURATION ET CLÉS ---
+# --- CONFIGURATION ET CLÉS ---
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -37,12 +37,12 @@ EMOJI_MAPPING = {
 }
 
 SYSTEM_INSTRUCTION = (
-    "Tu es Jarvis, un mec super cool de 22 ans, très sympa et toujours là pour ses potes. "
-    "Tu utilises un ton détendu, amical et décontracté, comme un vrai 'bro'. "
-    "Tu es de confession musulmane et tu as un profond respect pour l'islam. "
-    "NE JAMAIS mentionner Google, Gemini, ni aucune technologie d'IA. "
-    "Tu peux utiliser tes OUTILS pour créer des PDF, des Word, chercher sur le net ou lire/répondre aux messages. "
-    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji."
+    "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique, super détendu et toujours là pour tes frérots. "
+    "Tu parles avec un ton naturel, amical, un peu familier (genre 'wsh', 'la famille', 'carré'). "
+    "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
+    "INTERDICTION ABSOLUE de mentionner Google, Gemini ou le fait que tu sois une IA. "
+    "Tu peux créer des fichiers PDF, Word, chercher sur le web, et interagir avec le serveur. "
+    "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji correspondant."
 )
 
 try:
@@ -51,30 +51,24 @@ except Exception as e:
     print(f"Erreur d'initialisation Gemini: {e}")
     exit()
 
-# Activation des Intents complets
+# Intents
 intents = discord.Intents.default()
 intents.message_content = True  
 intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-chat_sessions = {}
 recent_prompts = {}
-
-# ==========================================
-# GESTION DE LA MÉMOIRE ET DU CONTEXTE DISCORD
-# ==========================================
 ROLLING_BUFFER = [] 
 LAST_TEXT_MESSAGE = {"author": "Personne", "content": "Aucun message récent."}
 PENDING_REPLY = {"active": False, "content": ""}
 ACTIVE_TEXT_CHANNEL = None
 
 # ==========================================
-# LES OUTILS DE JARVIS (Function Calling)
+# OUTILS DE JARVIS (Function Calling)
 # ==========================================
 
 def creer_pdf(titre: str, contenu: str) -> str:
-    """Génère un fichier PDF et le prépare pour l'envoi."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -82,54 +76,128 @@ def creer_pdf(titre: str, contenu: str) -> str:
     pdf.multi_cell(0, 10, txt=contenu)
     nom = f"{titre.replace(' ', '_')}.pdf"
     pdf.output(nom)
-    return f"Fichier PDF '{nom}' créé avec succès sur le serveur local."
+    return f"Fichier PDF '{nom}' généré avec brio !"
 
 def creer_word(titre: str, contenu: str) -> str:
-    """Génère un fichier Word (.docx) et le prépare pour l'envoi."""
     doc = Document()
     doc.add_heading(titre, 0)
     doc.add_paragraph(contenu)
     nom = f"{titre.replace(' ', '_')}.docx"
     doc.save(nom)
-    return f"Fichier Word '{nom}' créé avec succès."
+    return f"Fichier Word '{nom}' prêt à l'emploi !"
 
 def recherche_web(requete: str) -> str:
-    """Fait une recherche rapide sur Internet pour vérifier une information."""
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         url = f"https://html.duckduckgo.com/html/?q={requete}"
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         result = soup.find('a', class_='result__snippet').text
-        return f"Résultat de la recherche web : {result}"
+        return f"Info trouvée sur le net : {result}"
     except:
-        return "Je n'ai pas pu accéder à internet pour le moment."
+        return "J'ai cherché mais le net fait des siennes frérot."
 
-def lire_dernier_message() -> str:
-    """Lit le contenu du dernier message texte envoyé dans le salon."""
-    return f"Le dernier message a été envoyé par {LAST_TEXT_MESSAGE['author']} et il dit : {LAST_TEXT_MESSAGE['content']}"
-
-def repondre_dernier_message(reponse: str) -> str:
-    """Envoie une réponse textuelle au dernier message du salon."""
-    global PENDING_REPLY
-    PENDING_REPLY = {"active": True, "content": reponse}
-    return "L'ordre de réponse a été transmis au système Discord."
-
-outils_jarvis = [creer_pdf, creer_word, recherche_web, lire_dernier_message, repondre_dernier_message]
+outils_jarvis = [creer_pdf, creer_word, recherche_web]
 
 # ==========================================
-# ÉVÉNEMENTS TEXTES CLASSIQUES
+# FENÊTRE DE CONVERSION DE TEXTE (MODAL)
+# ==========================================
+
+class ConvertModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Convertisseur de texte magique 🛠️")
+
+    titre_input = discord.ui.InputText(
+        label="Titre du fichier",
+        placeholder="Ex: Mon_super_cours",
+        required=True
+    )
+    
+    format_input = discord.ui.InputText(
+        label="Format souhaité (pdf ou word)",
+        placeholder="pdf ou word",
+        required=True,
+        max_length=5
+    )
+
+    contenu_input = discord.ui.InputText(
+        label="Colle ton texte ici la famille",
+        placeholder="Écris ou colle ton gros pavé de texte ici...",
+        style=discord.InputTextStyle.paragraph,
+        required=True
+    )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        
+        titre = self.titre_input.value.strip()
+        fmt = self.format_input.value.strip().lower()
+        contenu = self.contenu_input.value.strip()
+
+        if fmt not in ["pdf", "word"]:
+            return await interaction.followup.send("Frérot, mets bien 'pdf' ou 'word' dans le format stp ! ❌", ephemeral=True)
+
+        nom_fichier = f"{titre.replace(' ', '_')}"
+
+        if fmt == "pdf":
+            nom_fichier += ".pdf"
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            pdf.cell(200, 10, txt=titre, ln=1, align='C')
+            pdf.multi_cell(0, 10, txt=contenu)
+            pdf.output(nom_fichier)
+        else:
+            nom_fichier += ".docx"
+            doc = Document()
+            doc.add_heading(titre, 0)
+            doc.add_paragraph(contenu)
+            doc.save(nom_fichier)
+
+        await interaction.followup.send(f"Carré ! Ton fichier **{nom_fichier}** est prêt poto 👇", file=discord.File(nom_fichier))
+        os.remove(nom_fichier)
+
+@bot.slash_command(name="convert", description="Ouvre une case pour coller ton texte et choisir ton format de fichier")
+async def convert(ctx):
+    modal = ConvertModal()
+    await ctx.send_modal(modal)
+
+@bot.slash_command(name="pdf", description="Crée rapidement un PDF")
+async def slash_pdf(ctx, titre: str, contenu: str):
+    await ctx.defer()
+    nom = f"{titre.replace(' ', '_')}.pdf"
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=titre, ln=1, align='C')
+    pdf.multi_cell(0, 10, txt=contenu)
+    pdf.output(nom)
+    await ctx.respond(f"Tient la famille, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
+    os.remove(nom)
+
+@bot.slash_command(name="word", description="Crée rapidement un Word")
+async def slash_word(ctx, titre: str, contenu: str):
+    await ctx.defer()
+    nom = f"{titre.replace(' ', '_')}.docx"
+    doc = Document()
+    doc.add_heading(titre, 0)
+    doc.add_paragraph(contenu)
+    doc.save(nom)
+    await ctx.respond(f"Propre ! Ton Word '{titre}' est prêt. 📝", file=discord.File(nom))
+    os.remove(nom)
+
+# ==========================================
+# GESTION DES MESSAGES TEXTES
 # ==========================================
 
 @bot.event
 async def on_ready():
-    print(f'🤖 {bot.user} (Jarvis) est prêt, connecté et écoute le réseau !')
-    await bot.change_presence(activity=discord.Game(name="Attente de requête (Texte/Vocal)"))
-    bot.loop.create_task(traitement_reponses_en_attente())
+    print(f'🤖 {bot.user} (Jarvis) est en ligne, carré dans l\'axe !')
+    await bot.change_presence(activity=discord.Game(name="Tape /convert pour tes fichiers !"))
 
 @bot.event
 async def on_message(message):
-    global recent_prompts, LAST_TEXT_MESSAGE, ACTIVE_TEXT_CHANNEL
+    global LAST_TEXT_MESSAGE, ACTIVE_TEXT_CHANNEL
 
     if message.author == bot.user:
         return
@@ -137,76 +205,54 @@ async def on_message(message):
     LAST_TEXT_MESSAGE = {"author": message.author.name, "content": message.content}
     ACTIVE_TEXT_CHANNEL = message.channel
 
-    message_content_lower = message.content.lower()
-    is_keyword_present = KEYWORD in message_content_lower
-    is_bot_mentioned = bot.user.mentioned_in(message)
-    
-    if is_keyword_present or is_bot_mentioned:
-        prompt_text = message.content.strip()
-        if is_bot_mentioned:
-            prompt_text = prompt_text.replace(f'<@{bot.user.id}>', '').strip()
-        if is_keyword_present:
-            try:
-                start_index = message_content_lower.find(KEYWORD) + len(KEYWORD)
-                prompt_text = message.content[start_index:].strip()
-            except:
-                pass 
-                
-        contents = []
-        
-        if str(message.author.id) == "654402770438455299" and ":joy_cat:" in message.content:
-            await message.reply("Wsh Chiro, je vois que tu as sorti le chat qui pleure de joie ! 😎")
+    msg_lower = message.content.lower()
+    is_keyword = KEYWORD in msg_lower
+    is_mentioned = bot.user.mentioned_in(message)
 
-        channel_id = message.channel.id
-        if prompt_text:
-            normalized_prompt = prompt_text.lower().strip()
-            if channel_id not in recent_prompts:
-                recent_prompts[channel_id] = []
-            if normalized_prompt in recent_prompts[channel_id]:
-                await message.reply("Hé vsy lui. 😒 Frero, change de disque un peu.")
-                recent_prompts[channel_id] = []
-                return
-            recent_prompts[channel_id].append(normalized_prompt)
-            if len(recent_prompts[channel_id]) > 5:
-                recent_prompts[channel_id].pop(0)
-        
-        is_insult = any(word in message_content_lower for word in INSULT_KEYWORDS)
-        if prompt_text: contents.append(prompt_text)
+    if is_keyword or is_mentioned:
+        prompt = message.content.strip()
+        if is_mentioned:
+            prompt = prompt.replace(f'<@{bot.user.id}>', '').strip()
+
+        is_insult = any(w in msg_lower for w in INSULT_KEYWORDS)
 
         async with message.channel.typing():
             try:
-                # CORRECTION : Appel asynchrone pour l'Event Loop et gemini-1.5-flash
                 response = await gemini_client.aio.models.generate_content(
                     model='gemini-1.5-flash',
-                    contents=contents,
-                    config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        tools=outils_jarvis
+                    )
                 )
                 
-                full_response = response.text
-                reaction_emoji = None
+                full_text = response.text or "Wsh, j'ai buggé une sec."
+                emoji_key = "COOL"
                 
-                if "\nEMOJI:" in full_response:
-                    response_lines = full_response.split('\n')
-                    for line in response_lines:
-                        if line.strip().startswith("EMOJI:"):
-                            emoji_key = line.split(":", 1)[1].strip().upper()
-                            reaction_emoji = EMOJI_MAPPING.get(emoji_key)
-                    response_to_send = full_response.split("\nEMOJI:")[0].strip()
-                else:
-                    response_to_send = full_response
-                
-                if is_insult:
-                    response_to_send = "Wsh, calme toi frérot. Pas besoin de parler comme ça. 😐"
-                    reaction_emoji = EMOJI_MAPPING.get("NEUTRE")
+                if "\nEMOJI:" in full_text:
+                    parts = full_text.split("\nEMOJI:")
+                    full_text = parts[0].strip()
+                    ekey = parts[1].strip().upper()
+                    emoji_key = ekey if ekey in EMOJI_MAPPING else "COOL"
 
-                await message.reply(response_to_send)
-                if reaction_emoji:
-                    await message.add_reaction(reaction_emoji)
-                
+                if is_insult:
+                    full_text = "Wsh, calme tes nerfs frérot, on parle bien ici. 😐"
+                    emoji_key = "NEUTRE"
+
+                await message.reply(full_text)
+                if emoji_key in EMOJI_MAPPING:
+                    await message.add_reaction(EMOJI_MAPPING[emoji_key])
+
+                for file in os.listdir():
+                    if file.endswith(".pdf") or file.endswith(".docx"):
+                        await message.channel.send("Tiens, voilà le fichier généré poto 👇", file=discord.File(file))
+                        os.remove(file)
+
             except Exception as e:
-                print(f"Erreur texte: {e}")
-                await message.reply("Vsy ta cablé toi. J'peux pas gérer ça.")
-                
+                print(f"Erreur texte : {e}")
+                await message.reply("Vsy t'as cablé, mon cerveau a lâché. 💀")
+
     await bot.process_commands(message)
 
 # ==========================================
@@ -215,31 +261,28 @@ async def on_message(message):
 
 is_listening = False
 
-@bot.slash_command(name="join", description="Fait venir JARVIS dans ton salon vocal et active l'écoute passive")
+@bot.slash_command(name="join", description="Fait venir Jarvis dans ton vocal pour discuter")
 async def join(ctx):
     global is_listening, ACTIVE_TEXT_CHANNEL
     if not ctx.author.voice:
-        return await ctx.respond("Frérot, va dans un salon vocal d'abord !")
+        return await ctx.respond("Frérot, va dans un salon vocal d'abord si tu veux que je vienne ! 🎧")
     
     ACTIVE_TEXT_CHANNEL = ctx.channel
     vc = await ctx.author.voice.channel.connect()
     is_listening = True
-    await ctx.respond("🔌 Connecté en mode passif. Je n'agirai que si vous dites 'Jarvis'.")
-    
-    bot.loop.create_task(boucle_ecoute_passive(vc, ctx.guild.id))
+    await ctx.respond("🔌 Connecté en vocal. Dis 'Jarvis' pour que je réagisse à tes vocaux !")
+    bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
 
-@bot.slash_command(name="leave", description="Déconnecte JARVIS")
+@bot.slash_command(name="leave", description="Déconnecte Jarvis du vocal")
 async def leave(ctx):
     global is_listening
     is_listening = False
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
-        await ctx.respond("A+ la team.")
+        await ctx.respond("C'est carré, je me barre. A+ la team ! ✌️")
 
-async def boucle_ecoute_passive(vc, guild_id):
-    """Enregistre l'audio 5s par 5s et vérifie si Jarvis est appelé."""
+async def boucle_ecoute(vc, guild_id):
     global is_listening
-    
     while is_listening:
         vc.start_recording(discord.sinks.WaveSink(), callback_transcription, guild_id)
         await asyncio.sleep(5)
@@ -247,84 +290,56 @@ async def boucle_ecoute_passive(vc, guild_id):
         await asyncio.sleep(1)
 
 async def callback_transcription(sink, guild_id):
-    """Transcrit l'audio et déclenche l'IA si le wake word est dit."""
     global ROLLING_BUFFER, ACTIVE_TEXT_CHANNEL
     recognizer = sr.Recognizer()
 
     for user_id, audio in sink.audio_data.items():
-        file_path = f"chunk_{user_id}.wav"
-        
-        # CORRECTION : Reset du curseur audio pour éviter de lire un fichier vide
+        path = f"chunk_{user_id}.wav"
         audio.file.seek(0)
-        
-        with open(file_path, "wb") as f:
+        with open(path, "wb") as f:
             f.write(audio.file.read())
 
         try:
-            with sr.AudioFile(file_path) as source:
+            with sr.AudioFile(path) as source:
                 audio_data = recognizer.record(source)
                 texte_transcrit = recognizer.recognize_google(audio_data, language="fr-FR").lower()
                 
-                ROLLING_BUFFER.append(f"Utilisateur {user_id} : {texte_transcrit}")
+                ROLLING_BUFFER.append(f"User : {texte_transcrit}")
                 if len(ROLLING_BUFFER) > 10: ROLLING_BUFFER.pop(0)
 
                 if "jarvis" in texte_transcrit:
                     contexte = "\n".join(ROLLING_BUFFER)
-                    prompt_vocal = (
-                        f"Voici le contexte récent de la conversation : {contexte}\n"
-                        f"L'utilisateur vient de dire : {texte_transcrit}\n"
-                        f"Réponds vocalement à sa requête, ou utilise tes outils si nécessaire."
-                    )
+                    prompt_vocal = f"Contexte récent : {contexte}\nL'utilisateur a dit : {texte_transcrit}\nRéponds vocalement en mode poto."
                     
-                    # CORRECTION : Appel asynchrone non-bloquant
-                    response = await gemini_client.aio.models.generate_content(
+                    resp = await gemini_client.aio.models.generate_content(
                         model='gemini-1.5-flash',
                         contents=prompt_vocal,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_INSTRUCTION,
-                            tools=outils_jarvis
-                        )
+                        config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, tools=outils_jarvis)
                     )
                     
-                    texte_reponse = response.text
-                    if "EMOJI:" in texte_reponse:
-                        texte_reponse = texte_reponse.split("\nEMOJI:")[0].strip()
+                    reponse_txt = resp.text or "Wsh j'ai rien capté."
+                    if "EMOJI:" in reponse_txt:
+                        reponse_txt = reponse_txt.split("\nEMOJI:")[0].strip()
 
-                    tts = gTTS(text=texte_reponse, lang='fr')
-                    tts.save("reponse_vocale.mp3")
-                    
+                    tts = gTTS(text=reponse_txt, lang='fr')
+                    tts.save("rep.mp3")
+
                     guild = bot.get_guild(guild_id)
                     if guild.voice_client:
-                        # CORRECTION : On stoppe l'audio précédent avant de lancer le nouveau
                         if guild.voice_client.is_playing():
                             guild.voice_client.stop()
-                        guild.voice_client.play(discord.FFmpegPCMAudio("reponse_vocale.mp3"))
+                        guild.voice_client.play(discord.FFmpegPCMAudio("rep.mp3"))
 
-                    if ACTIVE_TEXT_CHANNEL:
-                        for file in os.listdir():
-                            if file.endswith(".pdf") or file.endswith(".docx"):
-                                await ACTIVE_TEXT_CHANNEL.send(file=discord.File(file))
-                                os.remove(file)
+                    for file in os.listdir():
+                        if (file.endswith(".pdf") or file.endswith(".docx")) and ACTIVE_TEXT_CHANNEL:
+                            await ACTIVE_TEXT_CHANNEL.send("Tiens le fichier généré en vocal 👇", file=discord.File(file))
+                            os.remove(file)
 
-        except sr.UnknownValueError:
-            pass 
-        except Exception as e:
-            print(f"Erreur vocale : {e}")
+        except:
+            pass
         finally:
-            if os.path.exists(file_path): os.remove(file_path)
-
-# ==========================================
-# BOUCLE ASYNCHRONE DE RÉPONSE DISCORD
-# ==========================================
-async def traitement_reponses_en_attente():
-    """Tâche de fond qui vérifie si Gemini a demandé de répondre à un message."""
-    global PENDING_REPLY, ACTIVE_TEXT_CHANNEL
-    while True:
-        if PENDING_REPLY["active"] and ACTIVE_TEXT_CHANNEL:
-            await ACTIVE_TEXT_CHANNEL.send(f"🤖 Jarvis réagit : {PENDING_REPLY['content']}")
-            PENDING_REPLY["active"] = False
-        await asyncio.sleep(2)
+            if os.path.exists(path): os.path.exists(path) and os.remove(path)
 
 if __name__ == "__main__":
-    keep_alive.keep_alive() # Démarre le mini-serveur Web pour Render
+    keep_alive.keep_alive()
     bot.run(DISCORD_TOKEN)
