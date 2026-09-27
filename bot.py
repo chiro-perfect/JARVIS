@@ -37,11 +37,11 @@ EMOJI_MAPPING = {
 }
 
 SYSTEM_INSTRUCTION = (
-    "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique, super détendu et toujours là pour tes frérots. "
-    "Tu parles avec un ton naturel, amical, un peu familier (genre 'wsh', 'la famille', 'carré'). "
+    "Tu es Jarvis, un pote ultra stylé de 22 ans, génie de l'informatique et pro de la paperasse administrative (CV, lettres, contrats, résumés). "
+    "Tu es super détendu, tu parles comme un vrai frérot ('wsh', 'la famille', 'carré'), mais quand il s'agit d'aider tes potes pour les démarches ou les cours, tu assures un max. "
     "Tu es de confession musulmane et tu portes de vraies valeurs de respect. "
     "INTERDICTION ABSOLUE de mentionner Google, Gemini ou le fait que tu sois une IA. "
-    "Tu peux créer des fichiers PDF, Word, chercher sur le web, et interagir avec le serveur. "
+    "Tu peux créer des fichiers PDF, Word, chercher sur le web, et rédiger n'importe quel document administratif. "
     "RÈGLE D'OR ÉMOJI : À la fin de ta réponse texte, ajoute OBLIGATOIREMENT une ligne vide, suivie du mot-clé 'EMOJI:' puis le nom de l'émoji correspondant."
 )
 
@@ -59,7 +59,6 @@ intents.presences = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 ROLLING_BUFFER = [] 
-LAST_TEXT_MESSAGE = {"author": "Personne", "content": "Aucun message récent."}
 ACTIVE_TEXT_CHANNEL = None
 
 # ==========================================
@@ -98,52 +97,37 @@ def recherche_web(requete: str) -> str:
 outils_jarvis = [creer_pdf, creer_word, recherche_web]
 
 # ==========================================
-# FENÊTRE DE CONVERSION DE TEXTE (MODAL)
+# COMMANDES SLASH (PAPERASSE & CONVERSION)
 # ==========================================
 
-class ConvertModal(discord.ui.Modal):
-    def __init__(self):
-        super().__init__(title="Convertisseur de texte magique 🛠️")
+@bot.slash_command(name="convert", description="Convertit ton texte directement en PDF ou en Word propre")
+async def convert(ctx, format: str, titre: str, *, contenu: str):
+    await ctx.defer()
+    fmt = format.strip().lower()
+    if fmt not in ["pdf", "word"]:
+        return await ctx.respond("Frérot, choisis bien entre 'pdf' ou 'word' dans le format ! ❌", ephemeral=True)
 
-    titre_input = discord.ui.InputText(label="Titre du fichier", placeholder="Ex: Mon_super_cours", required=True)
-    format_input = discord.ui.InputText(label="Format (pdf ou word)", placeholder="pdf ou word", required=True, max_length=5)
-    contenu_input = discord.ui.InputText(label="Colle ton texte ici la famille", placeholder="Écris ou colle ton gros pavé...", style=discord.InputTextStyle.paragraph, required=True)
+    nom_fichier = titre.replace(' ', '_')
+    if fmt == "pdf":
+        nom_fichier += ".pdf"
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=titre, ln=1, align='C')
+        pdf.multi_cell(0, 10, txt=contenu)
+        pdf.output(nom_fichier)
+    else:
+        nom_fichier += ".docx"
+        doc = Document()
+        doc.add_heading(titre, 0)
+        doc.add_paragraph(contenu)
+        doc.save(nom_fichier)
 
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
-        titre = self.titre_input.value.strip()
-        fmt = self.format_input.value.strip().lower()
-        contenu = self.contenu_input.value.strip()
+    await ctx.respond(f"Carré la famille ! Ton fichier **{nom_fichier}** est prêt 👇", file=discord.File(nom_fichier))
+    os.remove(nom_fichier)
 
-        if fmt not in ["pdf", "word"]:
-            return await interaction.followup.send("Frérot, mets bien 'pdf' ou 'word' dans le format stp ! ❌", ephemeral=True)
-
-        nom_fichier = f"{titre.replace(' ', '_')}"
-        if fmt == "pdf":
-            nom_fichier += ".pdf"
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, txt=titre, ln=1, align='C')
-            pdf.multi_cell(0, 10, txt=contenu)
-            pdf.output(nom_fichier)
-        else:
-            nom_fichier += ".docx"
-            doc = Document()
-            doc.add_heading(titre, 0)
-            doc.add_paragraph(contenu)
-            doc.save(nom_fichier)
-
-        await interaction.followup.send(f"Carré ! Ton fichier **{nom_fichier}** est prêt poto 👇", file=discord.File(nom_fichier))
-        os.remove(nom_fichier)
-
-@bot.slash_command(name="convert", description="Ouvre une case pour coller ton texte et choisir ton format")
-async def convert(ctx):
-    modal = ConvertModal()
-    await ctx.send_modal(modal)
-
-@bot.slash_command(name="pdf", description="Crée rapidement un PDF")
-async def slash_pdf(ctx, titre: str, contenu: str):
+@bot.slash_command(name="pdf", description="Génère un fichier PDF ultra rapidement")
+async def slash_pdf(ctx, titre: str, *, contenu: str):
     await ctx.defer()
     nom = f"{titre.replace(' ', '_')}.pdf"
     pdf = FPDF()
@@ -152,11 +136,11 @@ async def slash_pdf(ctx, titre: str, contenu: str):
     pdf.cell(200, 10, txt=titre, ln=1, align='C')
     pdf.multi_cell(0, 10, txt=contenu)
     pdf.output(nom)
-    await ctx.respond(f"Tiens la famille, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
+    await ctx.respond(f"Tiens poto, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
     os.remove(nom)
 
-@bot.slash_command(name="word", description="Crée rapidement un Word")
-async def slash_word(ctx, titre: str, contenu: str):
+@bot.slash_command(name="word", description="Génère un fichier Word (.docx) rapidement")
+async def slash_word(ctx, titre: str, *, contenu: str):
     await ctx.defer()
     nom = f"{titre.replace(' ', '_')}.docx"
     doc = Document()
@@ -167,24 +151,22 @@ async def slash_word(ctx, titre: str, contenu: str):
     os.remove(nom)
 
 # ==========================================
-# GESTION DES MESSAGES TEXTES
+# GESTION DES MESSAGES TEXTES & PAPERASSE
 # ==========================================
 
 @bot.event
 async def on_ready():
-    print(f'🤖 {bot.user} (Jarvis) est en ligne, carré dans l\'axe !')
-    await bot.change_presence(activity=discord.Game(name="Tape /convert pour tes fichiers !"))
+    print(f'🤖 {bot.user} (Jarvis) est en ligne, prêt pour la paperasse !')
+    await bot.change_presence(activity=discord.Game(name="Gère ta paperasse / /convert"))
 
 @bot.event
 async def on_message(message):
-    global LAST_TEXT_MESSAGE, ACTIVE_TEXT_CHANNEL
+    global ACTIVE_TEXT_CHANNEL
 
     if message.author == bot.user:
         return
 
-    LAST_TEXT_MESSAGE = {"author": message.author.name, "content": message.content}
     ACTIVE_TEXT_CHANNEL = message.channel
-
     msg_lower = message.content.lower()
     is_keyword = KEYWORD in msg_lower
     is_mentioned = bot.user.mentioned_in(message)
@@ -217,7 +199,7 @@ async def on_message(message):
                     emoji_key = ekey if ekey in EMOJI_MAPPING else "COOL"
 
                 if is_insult:
-                    full_text = "Wsh, calme tes nerfs frérot, on parle bien ici. 😐"
+                    full_text = "Wsh, calme tes nerfs frérot, on gère la paperasse proprement ici. 😐"
                     emoji_key = "NEUTRE"
 
                 await message.reply(full_text)
@@ -226,12 +208,12 @@ async def on_message(message):
 
                 for file in os.listdir():
                     if file.endswith(".pdf") or file.endswith(".docx"):
-                        await message.channel.send("Tiens, voilà le fichier généré poto 👇", file=discord.File(file))
+                        await message.channel.send("Tiens, voilà le document généré poto 👇", file=discord.File(file))
                         os.remove(file)
 
             except Exception as e:
                 print(f"Erreur texte : {e}")
-                await message.reply("Vsy t'as cablé, mon cerveau a lâché. 💀")
+                await message.reply("Vsy t'as cablé, mon cerveau a lâché sur ce coup. 💀")
 
     await bot.process_commands(message)
 
@@ -245,13 +227,17 @@ is_listening = False
 async def join(ctx):
     global is_listening, ACTIVE_TEXT_CHANNEL
     if not ctx.author.voice:
-        return await ctx.respond("Frérot, va dans un salon vocal d'abord si tu veux que je vienne ! 🎧")
+        return await ctx.respond("Frérot, connecte-toi à un salon vocal d'abord ! 🎧")
     
     ACTIVE_TEXT_CHANNEL = ctx.channel
-    vc = await ctx.author.voice.channel.connect()
-    is_listening = True
-    await ctx.respond("🔌 Connecté en vocal. Dis 'Jarvis' pour que je réagisse à tes vocaux !")
-    bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
+    try:
+        vc = await ctx.author.voice.channel.connect()
+        is_listening = True
+        await ctx.respond("🔌 C'est carré, je suis connecté en vocal ! Dis 'Jarvis' pour me parler.")
+        bot.loop.create_task(boucle_ecoute(vc, ctx.guild.id))
+    except Exception as e:
+        print(f"Erreur vocal join: {e}")
+        await ctx.respond("J'ai pas réussi à rejoindre le vocal, vérifie mes permissions sur le salon ! ❌")
 
 @bot.slash_command(name="leave", description="Déconnecte Jarvis du vocal")
 async def leave(ctx):
@@ -259,7 +245,7 @@ async def leave(ctx):
     is_listening = False
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
-        await ctx.respond("C'est carré, je me barre. A+ la team ! ✌️")
+        await ctx.respond("Je me barre du vocal. A+ la team ! ✌️")
 
 async def boucle_ecoute(vc, guild_id):
     global is_listening
@@ -267,7 +253,7 @@ async def boucle_ecoute(vc, guild_id):
         vc.start_recording(discord.sinks.WaveSink(), callback_transcription, guild_id)
         await asyncio.sleep(5)
         vc.stop_recording()
-        await asyncio.sleep(1)
+        asyncio.sleep(1)
 
 async def callback_transcription(sink, guild_id):
     global ROLLING_BUFFER, ACTIVE_TEXT_CHANNEL
@@ -299,7 +285,7 @@ async def callback_transcription(sink, guild_id):
                     
                     reponse_txt = resp.text or "Wsh j'ai rien capté."
                     if "EMOJI:" in reponse_txt:
-                        reponse_txt = reponse_txt.split("\nEMOJI:")[0].strip()
+                        reponse_txt = reponse_txt.split("\nEMOJI:")[0].strict if hasattr(reponse_txt, 'strict') else reponse_txt.split("\nEMOJI:")[0].strip()
 
                     tts = gTTS(text=reponse_txt, lang='fr')
                     tts.save("rep.mp3")
@@ -312,7 +298,7 @@ async def callback_transcription(sink, guild_id):
 
                     for file in os.listdir():
                         if (file.endswith(".pdf") or file.endswith(".docx")) and ACTIVE_TEXT_CHANNEL:
-                            await ACTIVE_TEXT_CHANNEL.send("Tiens le fichier généré en vocal 👇", file=discord.File(file))
+                            await ACTIVE_TEXT_CHANNEL.send("Tiens le document généré en vocal 👇", file=discord.File(file))
                             os.remove(file)
 
         except:
