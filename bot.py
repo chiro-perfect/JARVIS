@@ -58,10 +58,8 @@ intents.members = True
 intents.presences = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-recent_prompts = {}
 ROLLING_BUFFER = [] 
 LAST_TEXT_MESSAGE = {"author": "Personne", "content": "Aucun message récent."}
-PENDING_REPLY = {"active": False, "content": ""}
 ACTIVE_TEXT_CHANNEL = None
 
 # ==========================================
@@ -107,29 +105,12 @@ class ConvertModal(discord.ui.Modal):
     def __init__(self):
         super().__init__(title="Convertisseur de texte magique 🛠️")
 
-    titre_input = discord.ui.InputText(
-        label="Titre du fichier",
-        placeholder="Ex: Mon_super_cours",
-        required=True
-    )
-    
-    format_input = discord.ui.InputText(
-        label="Format souhaité (pdf ou word)",
-        placeholder="pdf ou word",
-        required=True,
-        max_length=5
-    )
-
-    contenu_input = discord.ui.InputText(
-        label="Colle ton texte ici la famille",
-        placeholder="Écris ou colle ton gros pavé de texte ici...",
-        style=discord.InputTextStyle.paragraph,
-        required=True
-    )
+    titre_input = discord.ui.InputText(label="Titre du fichier", placeholder="Ex: Mon_super_cours", required=True)
+    format_input = discord.ui.InputText(label="Format (pdf ou word)", placeholder="pdf ou word", required=True, max_length=5)
+    contenu_input = discord.ui.InputText(label="Colle ton texte ici la famille", placeholder="Écris ou colle ton gros pavé...", style=discord.InputTextStyle.paragraph, required=True)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        
         titre = self.titre_input.value.strip()
         fmt = self.format_input.value.strip().lower()
         contenu = self.contenu_input.value.strip()
@@ -138,7 +119,6 @@ class ConvertModal(discord.ui.Modal):
             return await interaction.followup.send("Frérot, mets bien 'pdf' ou 'word' dans le format stp ! ❌", ephemeral=True)
 
         nom_fichier = f"{titre.replace(' ', '_')}"
-
         if fmt == "pdf":
             nom_fichier += ".pdf"
             pdf = FPDF()
@@ -157,7 +137,7 @@ class ConvertModal(discord.ui.Modal):
         await interaction.followup.send(f"Carré ! Ton fichier **{nom_fichier}** est prêt poto 👇", file=discord.File(nom_fichier))
         os.remove(nom_fichier)
 
-@bot.slash_command(name="convert", description="Ouvre une case pour coller ton texte et choisir ton format de fichier")
+@bot.slash_command(name="convert", description="Ouvre une case pour coller ton texte et choisir ton format")
 async def convert(ctx):
     modal = ConvertModal()
     await ctx.send_modal(modal)
@@ -172,7 +152,7 @@ async def slash_pdf(ctx, titre: str, contenu: str):
     pdf.cell(200, 10, txt=titre, ln=1, align='C')
     pdf.multi_cell(0, 10, txt=contenu)
     pdf.output(nom)
-    await ctx.respond(f"Tient la famille, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
+    await ctx.respond(f"Tiens la famille, ton PDF '{titre}' est bouclé ! 📄", file=discord.File(nom))
     os.remove(nom)
 
 @bot.slash_command(name="word", description="Crée rapidement un Word")
@@ -338,7 +318,8 @@ async def callback_transcription(sink, guild_id):
         except:
             pass
         finally:
-            if os.path.exists(path): os.path.exists(path) and os.remove(path)
+            if os.path.exists(path):
+                os.remove(path)
 
 if __name__ == "__main__":
     keep_alive.keep_alive()
