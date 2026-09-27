@@ -11,3 +11,4 @@ python-dotenv
 PyNaCl
 Flask
 Pillow
+imageio-ffmpeg
